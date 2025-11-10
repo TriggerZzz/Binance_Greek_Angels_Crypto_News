@@ -1,5 +1,4 @@
-[README.md](https://github.com/user-attachments/files/23463399/README.md)
-# 🤖 Crypto News Telegram Bot
+# 🤖 Binance Angel Devs Crypto News Telegram Bot
 
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Automated-blue?logo=github-actions)
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
@@ -397,7 +396,7 @@ Having issues? Here's how to get help:
 
 <div align="center">
 
-**Made with ❤️ and powered by AI**
+**Made with ❤️ and powered by Binance Angel Devs**
 
 ⭐ Star this repo if you find it useful!
 
