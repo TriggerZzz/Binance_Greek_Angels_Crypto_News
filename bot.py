@@ -2,11 +2,11 @@
 Crypto News Telegram Bot with AI Image Generation
 
 This bot automatically fetches crypto market news using Perplexity AI,
-generates accompanying images, and posts them to a Telegram channel/group.
+generates accompanying images, and posts them to Telegram channels / groups.
 
 Author: TriggerZ
 License: MIT
-Repository: https://github.com/yourusername/crypto-telegram-bot
+Repository: https://github.com/TriggerZzz/Binance_Greek_Angels_Crypto_News
 """
 
 import requests
