@@ -2,10 +2,10 @@ name: Send Perplexity Report to Telegram
 
 on:
   schedule:
-    # Runs Monday-Friday at 16:00 UTC
+    # Runs Monday-Friday at 17:00 UTC
     # Cron format: minute hour day month day-of-week
     # 0-6 where 0=Sunday, 1=Monday, ..., 5=Friday
-    - cron: '0 16 * * 1-5'
+    - cron: '0 17 * * 1-5'
   
   # Allow manual trigger for testing
   workflow_dispatch:
