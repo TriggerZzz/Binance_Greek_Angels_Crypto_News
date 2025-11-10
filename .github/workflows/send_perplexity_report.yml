@@ -2,11 +2,8 @@ name: Send Crypto News to Telegram
 
 on:
   schedule:
-    # Runs Monday-Friday at 17:00 UTC (changed from 16:00)
     - cron: '0 17 * * 1-5'
-  
-  # Allow manual trigger for testing
-  workflow_dispatch:
+  workflow_dispatch:  # This allows manual trigger
 
 jobs:
   send-crypto-report:
@@ -33,14 +30,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
           PERPLEXITY_QUERY: ${{ secrets.PERPLEXITY_QUERY }}
+          IMAGE_PROMPT: ${{ secrets.IMAGE_PROMPT }}
         run: |
           python bot.py
-      
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: error-logs
-          path: |
-            ${{ github.workspace }}/*.log
-          retention-days: 7
