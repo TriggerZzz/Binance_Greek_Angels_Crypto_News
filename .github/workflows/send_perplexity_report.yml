@@ -1,15 +1,22 @@
-name: Send Crypto News to Telegram
+name: Send Perplexity Report to Telegram
 
 on:
   schedule:
-    # Runs Monday-Friday at 17:00 UTC (changed from 16:00)
-    - cron: '0 17 * * 1-5'
+    # Runs Monday-Friday at 16:00 UTC
+    # Cron format: minute hour day month day-of-week
+    # 0-6 where 0=Sunday, 1=Monday, ..., 5=Friday
+    - cron: '0 16 * * 1-5'
   
   # Allow manual trigger for testing
   workflow_dispatch:
+    inputs:
+      custom_query:
+        description: 'Custom query (optional)'
+        required: false
+        default: ''
 
 jobs:
-  send-crypto-report:
+  send-report:
     runs-on: ubuntu-latest
     
     steps:
@@ -20,14 +27,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
       
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Run crypto news bot
+      - name: Run bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -36,11 +42,7 @@ jobs:
         run: |
           python bot.py
       
-      - name: Upload logs on failure
+      - name: Notify on failure
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: error-logs
-          path: |
-            ${{ github.workspace }}/*.log
-          retention-days: 7
+        run: |
+          echo "Workflow failed. Check logs for details."
