@@ -2,9 +2,9 @@
 Crypto News Telegram Bot with AI Image Generation
 
 This bot automatically fetches crypto market news using Perplexity AI,
-generates accompanying images, and posts them to Telegram channels / groups.
+generates accompanying images, and posts them to your Telegram channel/group.
 
-Author: TriggerZ
+Author: TriggerZzz
 License: MIT
 Repository: https://github.com/TriggerZzz/Binance_Greek_Angels_Crypto_News
 """
@@ -14,6 +14,8 @@ import json
 import os
 from datetime import datetime
 import sys
+import time
+from io import BytesIO
 
 # ============================================================================
 # CONFIGURATION - All sensitive data loaded from environment variables
@@ -44,15 +46,16 @@ TELEGRAM_MAX_CAPTION_LENGTH = 1020  # Telegram limit is 1024, leave buffer
 # PERPLEXITY AI FUNCTIONS
 # ============================================================================
 
-def query_perplexity(prompt):
+def query_perplexity(prompt, max_retries=3):
     """
-    Query Perplexity AI API for crypto market news.
+    Query Perplexity AI API for crypto market news with retry logic.
     
     Args:
         prompt (str): The query prompt to send to Perplexity
+        max_retries (int): Maximum number of retry attempts
         
     Returns:
-        str: The generated content, or None if request fails
+        str: The generated content, or None if all retries fail
     """
     headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
@@ -84,37 +87,65 @@ def query_perplexity(prompt):
         "top_p": 0.9
     }
     
-    try:
-        print(f"📡 Querying Perplexity API...")
-        response = requests.post(
-            PERPLEXITY_API_URL, 
-            headers=headers, 
-            json=payload, 
-            timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Extract the response content
-        content = data['choices'][0]['message']['content']
-        print(f"✅ Received response ({len(content)} characters)")
-        
-        return content
-        
-    except requests.exceptions.Timeout:
-        print(f"❌ Error: Perplexity API request timed out")
-        return None
-        
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error querying Perplexity API: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"   Status code: {e.response.status_code}")
-            print(f"   Response: {e.response.text}")
-        return None
-        
-    except (KeyError, IndexError) as e:
-        print(f"❌ Error parsing Perplexity response: {e}")
-        return None
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"📡 Querying Perplexity API (attempt {attempt}/{max_retries})...")
+            response = requests.post(
+                PERPLEXITY_API_URL, 
+                headers=headers, 
+                json=payload, 
+                timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract the response content
+            content = data['choices'][0]['message']['content']
+            print(f"✅ Received response ({len(content)} characters)")
+            
+            return content
+            
+        except requests.exceptions.Timeout:
+            print(f"❌ Attempt {attempt}: Perplexity API request timed out")
+            if attempt < max_retries:
+                wait_time = attempt * 5  # Progressive delay: 5s, 10s, 15s
+                print(f"⏳ Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+            
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if hasattr(e, 'response') else None
+            print(f"❌ Attempt {attempt}: HTTP Error {status_code}")
+            
+            # Retry on server errors (500-599)
+            if status_code and 500 <= status_code < 600:
+                if attempt < max_retries:
+                    wait_time = attempt * 10  # Longer wait for server errors
+                    print(f"⏳ Server error detected. Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"❌ All {max_retries} attempts failed with server error")
+                    if hasattr(e, 'response') and e.response is not None:
+                        print(f"   Response: {e.response.text[:500]}...")
+            else:
+                # Don't retry on client errors (400-499)
+                print(f"❌ Client error - not retrying")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"   Response: {e.response.text}")
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Attempt {attempt}: Request error: {e}")
+            if attempt < max_retries:
+                wait_time = attempt * 5
+                print(f"⏳ Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+                
+        except (KeyError, IndexError) as e:
+            print(f"❌ Attempt {attempt}: Error parsing response: {e}")
+            return None
+    
+    print(f"❌ All {max_retries} attempts exhausted")
+    return None
 
 
 # ============================================================================
@@ -146,12 +177,12 @@ def generate_crypto_image():
         )
         
         print(f"🎨 Generated image URL")
-        print(f"   Preview: {image_url[:80]}...")
+        print(f"   Preview: {image_url[:100]}...")
         
         return image_url
         
     except Exception as e:
-        print(f"❌ Error generating image: {e}")
+        print(f"❌ Error generating image URL: {e}")
         # Return a fallback placeholder image
         return "https://via.placeholder.com/1024x1024/1a1a2e/16c79a?text=Crypto+News"
 
@@ -160,65 +191,75 @@ def generate_crypto_image():
 # TELEGRAM FUNCTIONS
 # ============================================================================
 
-def send_telegram_photo_with_caption(photo_url, caption):
+def send_telegram_photo_downloaded(photo_url, caption):
     """
-    Send a photo with caption to Telegram chat with better error handling.
+    Download image first, then send to Telegram as file.
+    This method is more reliable than sending by URL.
     
     Args:
-        photo_url (str): URL of the photo to send
-        caption (str): Caption text (max 1024 characters)
+        photo_url (str): URL of the photo to download
+        caption (str): Caption text
         
     Returns:
-        bool: True if successful, False otherwise
+        bool: True if successful
     """
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     
-    # Ensure caption doesn't exceed Telegram's limit
+    # Ensure caption doesn't exceed limit
     if len(caption) > TELEGRAM_MAX_CAPTION_LENGTH:
         print(f"⚠️ Warning: Caption too long ({len(caption)} chars), truncating...")
         caption = caption[:TELEGRAM_MAX_CAPTION_LENGTH] + "..."
     
-    # First, verify the image URL is accessible
     try:
-        print(f"🔍 Verifying image URL accessibility...")
-        img_check = requests.head(photo_url, timeout=10)
-        if img_check.status_code != 200:
-            print(f"⚠️ Warning: Image URL returned status {img_check.status_code}")
-    except Exception as e:
-        print(f"⚠️ Warning: Could not verify image URL: {e}")
-    
-    params = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "photo": photo_url,
-        "caption": caption,
-        "parse_mode": "Markdown"
-    }
-    
-    try:
+        # Download the image
+        print(f"⬇️ Downloading image from Pollinations.ai...")
+        print(f"   URL: {photo_url[:100]}...")
+        
+        img_response = requests.get(photo_url, timeout=60)
+        img_response.raise_for_status()
+        
+        image_size = len(img_response.content)
+        print(f"✅ Image downloaded successfully ({image_size:,} bytes)")
+        
+        # Verify it's actually an image
+        content_type = img_response.headers.get('content-type', '')
+        if 'image' not in content_type.lower():
+            print(f"⚠️ Warning: Content-Type is '{content_type}', expected image")
+        
+        # Send as file
         print(f"📤 Sending photo to Telegram...")
-        print(f"   Image URL: {photo_url[:100]}...")
-        response = requests.post(url, data=params, timeout=60)
+        files = {
+            'photo': ('crypto_news.png', BytesIO(img_response.content), 'image/png')
+        }
+        data = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'caption': caption,
+            'parse_mode': 'Markdown'
+        }
         
-        # Print response for debugging
-        print(f"   Response status: {response.status_code}")
-        
+        response = requests.post(url, files=files, data=data, timeout=60)
         response.raise_for_status()
+        
         print("✅ Photo with caption sent successfully!")
         return True
         
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error sending photo to Telegram: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"   Status code: {e.response.status_code}")
-            print(f"   Response: {e.response.text[:500]}")
+    except requests.exceptions.Timeout:
+        print(f"❌ Timeout while downloading or sending image")
+        print("⚠️ Falling back to text-only message...")
+        return send_telegram_message(caption)
         
-        # Fallback: Try sending as text only if photo fails
-        print("⚠️ Photo failed, attempting to send as text only...")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error downloading or sending photo: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"   Status: {e.response.status_code}")
+            print(f"   Response: {e.response.text[:500]}")
+        print("⚠️ Falling back to text-only message...")
         return send_telegram_message(caption)
         
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        return False
+        print("⚠️ Falling back to text-only message...")
+        return send_telegram_message(caption)
 
 
 def send_telegram_message(text):
@@ -241,6 +282,7 @@ def send_telegram_message(text):
     }
     
     try:
+        print(f"📤 Sending text-only message to Telegram...")
         response = requests.post(url, data=params, timeout=10)
         response.raise_for_status()
         print("✅ Text message sent successfully!")
@@ -248,6 +290,8 @@ def send_telegram_message(text):
         
     except requests.exceptions.RequestException as e:
         print(f"❌ Error sending text message to Telegram: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"   Response: {e.response.text}")
         return False
 
 
@@ -371,10 +415,14 @@ def main():
         # Send error notification
         error_msg = (
             f"⚠️ *Daily Report Failed*\n\n"
-            f"Could not generate crypto news report.\n\n"
+            f"Could not generate crypto news report after 3 attempts.\n\n"
+            f"**Possible causes:**\n"
+            f"• Perplexity API server temporarily down\n"
+            f"• Network connectivity issues\n"
+            f"• API rate limits reached\n\n"
             f"Time: {datetime.utcnow().strftime('%H:%M UTC')}\n"
             f"Date: {datetime.utcnow().strftime('%Y-%m-%d')}\n\n"
-            f"Please check GitHub Actions logs for details."
+            f"The bot will automatically retry at the next scheduled time."
         )
         send_telegram_message(error_msg)
         sys.exit(1)
@@ -391,7 +439,7 @@ def main():
     print("STEP 3: Posting to Telegram")
     print("=" * 70)
     
-    success = send_telegram_photo_with_caption(image_url, content)
+    success = send_telegram_photo_downloaded(image_url, content)
     
     # Print final status
     print("\n" + "=" * 70)
@@ -424,4 +472,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-        
