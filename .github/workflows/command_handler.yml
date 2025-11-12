@@ -1,0 +1,35 @@
+name: Telegram Command Handler
+
+on:
+  # Run continuously as a long-running service
+  workflow_dispatch:
+  
+  # Auto-restart weekly to keep it fresh
+  schedule:
+    - cron: '0 0 * * 0'  # Restart every Sunday at midnight
+
+jobs:
+  run-command-handler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10080  # 7 days (maximum allowed)
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run command handler bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          echo "🤖 Starting command handler..."
+          python command_handler.py
