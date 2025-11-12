@@ -1,8 +1,6 @@
 """
 Crypto News Telegram Bot with AI Image Generation
-
-This bot automatically fetches crypto market news using Perplexity AI,
-generates accompanying images, and posts them to your Telegram channel/group.
+Multi-group support enabled
 
 Author: TriggerZzz
 License: MIT
@@ -16,20 +14,21 @@ from datetime import datetime
 import sys
 import time
 from io import BytesIO
+import group_manager
 
 # ============================================================================
 # CONFIGURATION - All sensitive data loaded from environment variables
 # ============================================================================
 
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')  # Fallback for single-group mode
 PERPLEXITY_API_KEY = os.environ.get('PERPLEXITY_API_KEY')
 PERPLEXITY_QUERY = os.environ.get('PERPLEXITY_QUERY')
 IMAGE_PROMPT = os.environ.get('IMAGE_PROMPT')
 
 # API Configuration
 PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
-PERPLEXITY_MODEL = "sonar"  # Fast online model with web search
+PERPLEXITY_MODEL = "sonar"
 PERPLEXITY_MAX_TOKENS = 2000
 PERPLEXITY_TEMPERATURE = 0.3
 
@@ -39,7 +38,7 @@ IMAGE_WIDTH = 1024
 IMAGE_HEIGHT = 1024
 
 # Telegram Configuration
-TELEGRAM_MAX_CAPTION_LENGTH = 1020  # Telegram limit is 1024, leave buffer
+TELEGRAM_MAX_CAPTION_LENGTH = 1020
 
 
 # ============================================================================
@@ -47,22 +46,12 @@ TELEGRAM_MAX_CAPTION_LENGTH = 1020  # Telegram limit is 1024, leave buffer
 # ============================================================================
 
 def query_perplexity(prompt, max_retries=3):
-    """
-    Query Perplexity AI API for crypto market news with retry logic.
-    
-    Args:
-        prompt (str): The query prompt to send to Perplexity
-        max_retries (int): Maximum number of retry attempts
-        
-    Returns:
-        str: The generated content, or None if all retries fail
-    """
+    """Query Perplexity AI API with retry logic"""
     headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json"
     }
     
-    # Get current date for the query context
     current_date = datetime.utcnow().strftime('%B %d, %Y')
     
     payload = {
@@ -99,52 +88,45 @@ def query_perplexity(prompt, max_retries=3):
             response.raise_for_status()
             data = response.json()
             
-            # Extract the response content
             content = data['choices'][0]['message']['content']
             print(f"✅ Received response ({len(content)} characters)")
             
             return content
             
         except requests.exceptions.Timeout:
-            print(f"❌ Attempt {attempt}: Perplexity API request timed out")
+            print(f"❌ Attempt {attempt}: Timeout")
             if attempt < max_retries:
-                wait_time = attempt * 5  # Progressive delay: 5s, 10s, 15s
-                print(f"⏳ Waiting {wait_time} seconds before retry...")
+                wait_time = attempt * 5
+                print(f"⏳ Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
             
         except requests.exceptions.HTTPError as e:
             status_code = e.response.status_code if hasattr(e, 'response') else None
             print(f"❌ Attempt {attempt}: HTTP Error {status_code}")
             
-            # Retry on server errors (500-599)
             if status_code and 500 <= status_code < 600:
                 if attempt < max_retries:
-                    wait_time = attempt * 10  # Longer wait for server errors
-                    print(f"⏳ Server error detected. Waiting {wait_time} seconds before retry...")
+                    wait_time = attempt * 10
+                    print(f"⏳ Server error. Waiting {wait_time}s...")
                     time.sleep(wait_time)
                 else:
-                    print(f"❌ All {max_retries} attempts failed with server error")
-                    if hasattr(e, 'response') and e.response is not None:
+                    if hasattr(e, 'response'):
                         print(f"   Response: {e.response.text[:500]}...")
             else:
-                # Don't retry on client errors (400-499)
-                print(f"❌ Client error - not retrying")
-                if hasattr(e, 'response') and e.response is not None:
+                if hasattr(e, 'response'):
                     print(f"   Response: {e.response.text}")
                 return None
                 
         except requests.exceptions.RequestException as e:
-            print(f"❌ Attempt {attempt}: Request error: {e}")
+            print(f"❌ Attempt {attempt}: {e}")
             if attempt < max_retries:
-                wait_time = attempt * 5
-                print(f"⏳ Waiting {wait_time} seconds before retry...")
-                time.sleep(wait_time)
+                time.sleep(attempt * 5)
                 
         except (KeyError, IndexError) as e:
-            print(f"❌ Attempt {attempt}: Error parsing response: {e}")
+            print(f"❌ Attempt {attempt}: Parse error: {e}")
             return None
     
-    print(f"❌ All {max_retries} attempts exhausted")
+    print(f"❌ All {max_retries} attempts failed")
     return None
 
 
@@ -153,21 +135,13 @@ def query_perplexity(prompt, max_retries=3):
 # ============================================================================
 
 def generate_crypto_image():
-    """
-    Generate a crypto-themed image using Pollinations.ai (free service).
-    
-    Returns:
-        str: URL of the generated image
-    """
+    """Generate crypto image URL using Pollinations.ai"""
     try:
-        # Add date to make each day's image unique
         date_suffix = datetime.utcnow().strftime('%Y%m%d')
         prompt_with_date = f"{IMAGE_PROMPT}, seed {date_suffix}"
         
-        # Encode prompt for URL
         encoded_prompt = requests.utils.quote(prompt_with_date)
         
-        # Build image URL with parameters
         image_url = (
             f"{IMAGE_API_URL}{encoded_prompt}"
             f"?width={IMAGE_WIDTH}"
@@ -182,8 +156,7 @@ def generate_crypto_image():
         return image_url
         
     except Exception as e:
-        print(f"❌ Error generating image URL: {e}")
-        # Return a fallback placeholder image
+        print(f"❌ Error generating image: {e}")
         return "https://via.placeholder.com/1024x1024/1a1a2e/16c79a?text=Crypto+News"
 
 
@@ -191,48 +164,27 @@ def generate_crypto_image():
 # TELEGRAM FUNCTIONS
 # ============================================================================
 
-def send_telegram_photo_downloaded(photo_url, caption):
-    """
-    Download image first, then send to Telegram as file.
-    This method is more reliable than sending by URL.
-    
-    Args:
-        photo_url (str): URL of the photo to download
-        caption (str): Caption text
-        
-    Returns:
-        bool: True if successful
-    """
+def send_telegram_photo_to_chat(chat_id, photo_url, caption):
+    """Send photo to specific chat"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     
-    # Ensure caption doesn't exceed limit
     if len(caption) > TELEGRAM_MAX_CAPTION_LENGTH:
-        print(f"⚠️ Warning: Caption too long ({len(caption)} chars), truncating...")
         caption = caption[:TELEGRAM_MAX_CAPTION_LENGTH] + "..."
     
     try:
-        # Download the image
-        print(f"⬇️ Downloading image from Pollinations.ai...")
-        print(f"   URL: {photo_url[:100]}...")
-        
+        print(f"⬇️ Downloading image for chat {chat_id}...")
         img_response = requests.get(photo_url, timeout=60)
         img_response.raise_for_status()
         
         image_size = len(img_response.content)
-        print(f"✅ Image downloaded successfully ({image_size:,} bytes)")
+        print(f"✅ Downloaded ({image_size:,} bytes)")
         
-        # Verify it's actually an image
-        content_type = img_response.headers.get('content-type', '')
-        if 'image' not in content_type.lower():
-            print(f"⚠️ Warning: Content-Type is '{content_type}', expected image")
-        
-        # Send as file
-        print(f"📤 Sending photo to Telegram...")
+        print(f"📤 Sending to chat {chat_id}...")
         files = {
             'photo': ('crypto_news.png', BytesIO(img_response.content), 'image/png')
         }
         data = {
-            'chat_id': TELEGRAM_CHAT_ID,
+            'chat_id': chat_id,
             'caption': caption,
             'parse_mode': 'Markdown'
         }
@@ -240,59 +192,70 @@ def send_telegram_photo_downloaded(photo_url, caption):
         response = requests.post(url, files=files, data=data, timeout=60)
         response.raise_for_status()
         
-        print("✅ Photo with caption sent successfully!")
+        print(f"  ✅ Sent successfully to {chat_id}")
         return True
         
-    except requests.exceptions.Timeout:
-        print(f"❌ Timeout while downloading or sending image")
-        print("⚠️ Falling back to text-only message...")
-        return send_telegram_message(caption)
-        
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error downloading or sending photo: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"   Status: {e.response.status_code}")
-            print(f"   Response: {e.response.text[:500]}")
-        print("⚠️ Falling back to text-only message...")
-        return send_telegram_message(caption)
-        
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        print("⚠️ Falling back to text-only message...")
-        return send_telegram_message(caption)
+        print(f"  ❌ Failed for {chat_id}: {e}")
+        # Fallback to text only
+        return send_telegram_message_to_chat(chat_id, caption)
 
 
-def send_telegram_message(text):
-    """
-    Fallback function to send text-only message to Telegram.
-    
-    Args:
-        text (str): Message text to send
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
+def send_telegram_message_to_chat(chat_id, text):
+    """Send text-only message to specific chat"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
     params = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown",
         "disable_web_page_preview": False
     }
     
     try:
-        print(f"📤 Sending text-only message to Telegram...")
         response = requests.post(url, data=params, timeout=10)
         response.raise_for_status()
-        print("✅ Text message sent successfully!")
+        print(f"  ✅ Text sent to {chat_id}")
         return True
-        
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error sending text message to Telegram: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"   Response: {e.response.text}")
+    except Exception as e:
+        print(f"  ❌ Text failed for {chat_id}: {e}")
         return False
+
+
+def send_to_all_groups(image_url, content):
+    """Send report to all subscribed groups"""
+    groups = group_manager.get_all_groups()
+    
+    # Fallback: if no groups subscribed, use TELEGRAM_CHAT_ID
+    if not groups:
+        if TELEGRAM_CHAT_ID:
+            print("ℹ️ No subscribed groups, using default TELEGRAM_CHAT_ID")
+            groups = [TELEGRAM_CHAT_ID]
+        else:
+            print("❌ No groups subscribed and no default TELEGRAM_CHAT_ID!")
+            return False
+    
+    print(f"📤 Sending to {len(groups)} group(s)...")
+    
+    success_count = 0
+    failed_groups = []
+    
+    for chat_id in groups:
+        success = send_telegram_photo_to_chat(chat_id, image_url, content)
+        if success:
+            success_count += 1
+        else:
+            failed_groups.append(chat_id)
+        
+        # Delay to avoid rate limits
+        time.sleep(2)
+    
+    print(f"\n📊 Delivery Summary:")
+    print(f"  ✅ Successful: {success_count}/{len(groups)}")
+    if failed_groups:
+        print(f"  ❌ Failed: {failed_groups}")
+    
+    return success_count > 0
 
 
 # ============================================================================
@@ -300,15 +263,9 @@ def send_telegram_message(text):
 # ============================================================================
 
 def validate_environment():
-    """
-    Validate that all required environment variables are set.
-    
-    Returns:
-        tuple: (bool, list) - (success status, list of missing variables)
-    """
+    """Validate required environment variables"""
     required_vars = {
         'TELEGRAM_BOT_TOKEN': TELEGRAM_BOT_TOKEN,
-        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
         'PERPLEXITY_API_KEY': PERPLEXITY_API_KEY,
         'PERPLEXITY_QUERY': PERPLEXITY_QUERY,
         'IMAGE_PROMPT': IMAGE_PROMPT
@@ -320,7 +277,7 @@ def validate_environment():
 
 
 def print_config_status():
-    """Print configuration status for debugging."""
+    """Print configuration status"""
     print("\n📋 Configuration Status:")
     print("=" * 70)
     
@@ -334,7 +291,6 @@ def print_config_status():
     
     for name, value in configs.items():
         if value:
-            # Show first/last few chars for security
             if name in ['TELEGRAM_BOT_TOKEN', 'PERPLEXITY_API_KEY']:
                 display = f"{value[:8]}...{value[-4:]}" if len(value) > 12 else "***"
             elif name in ['PERPLEXITY_QUERY', 'IMAGE_PROMPT']:
@@ -343,8 +299,9 @@ def print_config_status():
                 display = value
             print(f"   ✅ {name}: {display}")
         else:
-            print(f"   ❌ {name}: NOT SET")
+            print(f"   ⚠️ {name}: NOT SET")
     
+    print(f"\n📊 Subscribed Groups: {group_manager.get_group_count()}")
     print("=" * 70 + "\n")
 
 
@@ -353,107 +310,63 @@ def print_config_status():
 # ============================================================================
 
 def main():
-    """
-    Main function to orchestrate the crypto news bot workflow.
+    """Main execution function"""
     
-    Workflow:
-    1. Validate environment variables
-    2. Query Perplexity AI for crypto news
-    3. Generate accompanying image
-    4. Post to Telegram with image and caption
-    """
-    
-    # Print header
     print("\n" + "=" * 70)
-    print("🤖 CRYPTO NEWS TELEGRAM BOT")
+    print("🤖 CRYPTO NEWS TELEGRAM BOT - MULTI-GROUP")
     print("=" * 70)
-    print(f"⏰ Execution Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    print(f"🐍 Python Version: {sys.version.split()[0]}")
+    print(f"⏰ Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    print(f"🐍 Python: {sys.version.split()[0]}")
     
-    # Validate environment variables
+    # Validate environment
     is_valid, missing_vars = validate_environment()
     
     if not is_valid:
-        print("\n❌ ERROR: Missing required environment variables!")
+        print("\n❌ ERROR: Missing required variables!")
         print_config_status()
-        print("\nMissing variables:")
+        print("\nMissing:")
         for var in missing_vars:
             print(f"   - {var}")
-        print("\n💡 Please set all required secrets in GitHub repository settings.")
-        print("   Settings → Secrets and variables → Actions → New repository secret")
-        print("\nRequired secrets:")
-        print("   1. TELEGRAM_BOT_TOKEN - Your Telegram bot token from @BotFather")
-        print("   2. TELEGRAM_CHAT_ID - Your Telegram chat/group ID")
-        print("   3. PERPLEXITY_API_KEY - Your Perplexity API key")
-        print("   4. PERPLEXITY_QUERY - Your custom crypto news query")
-        print("   5. IMAGE_PROMPT - Your custom image generation prompt")
-        
-        # Try to send error notification if bot credentials exist
-        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-            error_msg = (
-                f"⚠️ *Bot Configuration Error*\n\n"
-                f"Missing environment variables:\n"
-                f"{', '.join(missing_vars)}\n\n"
-                f"Check GitHub Actions secrets configuration."
-            )
-            send_telegram_message(error_msg)
-        
+        print("\n💡 Set these in GitHub Secrets")
         sys.exit(1)
     
     print_config_status()
     
-    # Step 1: Query Perplexity for crypto news
+    # Step 1: Get crypto news
     print("=" * 70)
-    print("STEP 1: Fetching Crypto News from Perplexity AI")
+    print("STEP 1: Fetching Crypto News")
     print("=" * 70)
     
     content = query_perplexity(PERPLEXITY_QUERY)
     
     if not content:
-        print("\n❌ FAILED: Could not get content from Perplexity API")
-        
-        # Send error notification
-        error_msg = (
-            f"⚠️ *Daily Report Failed*\n\n"
-            f"Could not generate crypto news report after 3 attempts.\n\n"
-            f"**Possible causes:**\n"
-            f"• Perplexity API server temporarily down\n"
-            f"• Network connectivity issues\n"
-            f"• API rate limits reached\n\n"
-            f"Time: {datetime.utcnow().strftime('%H:%M UTC')}\n"
-            f"Date: {datetime.utcnow().strftime('%Y-%m-%d')}\n\n"
-            f"The bot will automatically retry at the next scheduled time."
-        )
-        send_telegram_message(error_msg)
+        print("\n❌ Failed to get content from Perplexity")
         sys.exit(1)
     
     # Step 2: Generate image
     print("\n" + "=" * 70)
-    print("STEP 2: Generating Crypto-Themed Image")
+    print("STEP 2: Generating Image")
     print("=" * 70)
     
     image_url = generate_crypto_image()
     
-    # Step 3: Send to Telegram
+    # Step 3: Send to all groups
     print("\n" + "=" * 70)
-    print("STEP 3: Posting to Telegram")
+    print("STEP 3: Sending to Subscribed Groups")
     print("=" * 70)
     
-    success = send_telegram_photo_downloaded(image_url, content)
+    success = send_to_all_groups(image_url, content)
     
-    # Print final status
+    # Final status
     print("\n" + "=" * 70)
     if success:
-        print("✅ SUCCESS: Daily crypto report delivered successfully!")
-        print(f"📊 Report length: {len(content)} characters")
-        print(f"🖼️ Image URL: {image_url}")
-        print(f"💬 Telegram Chat ID: {TELEGRAM_CHAT_ID}")
+        print("✅ SUCCESS: Reports delivered!")
+        print(f"📊 Content: {len(content)} chars")
+        print(f"📱 Groups: {group_manager.get_group_count()}")
     else:
-        print("❌ FAILED: Could not deliver report to Telegram")
-        print("Check the error messages above for details")
+        print("❌ FAILED: Could not deliver reports")
     print("=" * 70 + "\n")
     
-    # Exit with appropriate code
     sys.exit(0 if success else 1)
 
 
@@ -465,7 +378,7 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n⚠️ Process interrupted by user")
+        print("\n\n⚠️ Interrupted by user")
         sys.exit(130)
     except Exception as e:
         print(f"\n\n❌ CRITICAL ERROR: {e}")
