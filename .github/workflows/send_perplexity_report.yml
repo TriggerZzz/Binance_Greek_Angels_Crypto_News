@@ -2,8 +2,8 @@ name: Send Crypto News to Telegram
 
 on:
   schedule:
-    - cron: '0 17 * * 1-5'
-  workflow_dispatch:  # This allows manual trigger
+    - cron: '0 17 * * 1-5'  # Mon-Fri at 17:00 UTC
+  workflow_dispatch:
 
 jobs:
   send-crypto-report:
@@ -33,3 +33,11 @@ jobs:
           IMAGE_PROMPT: ${{ secrets.IMAGE_PROMPT }}
         run: |
           python bot.py
+      
+      - name: Upload subscriptions file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: subscriptions
+          path: subscribed_groups.json
+          retention-days: 90
