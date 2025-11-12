@@ -162,7 +162,7 @@ def generate_crypto_image():
 
 def send_telegram_photo_with_caption(photo_url, caption):
     """
-    Send a photo with caption to Telegram chat.
+    Send a photo with caption to Telegram chat with better error handling.
     
     Args:
         photo_url (str): URL of the photo to send
@@ -178,6 +178,15 @@ def send_telegram_photo_with_caption(photo_url, caption):
         print(f"⚠️ Warning: Caption too long ({len(caption)} chars), truncating...")
         caption = caption[:TELEGRAM_MAX_CAPTION_LENGTH] + "..."
     
+    # First, verify the image URL is accessible
+    try:
+        print(f"🔍 Verifying image URL accessibility...")
+        img_check = requests.head(photo_url, timeout=10)
+        if img_check.status_code != 200:
+            print(f"⚠️ Warning: Image URL returned status {img_check.status_code}")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not verify image URL: {e}")
+    
     params = {
         "chat_id": TELEGRAM_CHAT_ID,
         "photo": photo_url,
@@ -187,7 +196,12 @@ def send_telegram_photo_with_caption(photo_url, caption):
     
     try:
         print(f"📤 Sending photo to Telegram...")
+        print(f"   Image URL: {photo_url[:100]}...")
         response = requests.post(url, data=params, timeout=60)
+        
+        # Print response for debugging
+        print(f"   Response status: {response.status_code}")
+        
         response.raise_for_status()
         print("✅ Photo with caption sent successfully!")
         return True
@@ -196,7 +210,7 @@ def send_telegram_photo_with_caption(photo_url, caption):
         print(f"❌ Error sending photo to Telegram: {e}")
         if hasattr(e, 'response') and e.response is not None:
             print(f"   Status code: {e.response.status_code}")
-            print(f"   Response: {e.response.text}")
+            print(f"   Response: {e.response.text[:500]}")
         
         # Fallback: Try sending as text only if photo fails
         print("⚠️ Photo failed, attempting to send as text only...")
