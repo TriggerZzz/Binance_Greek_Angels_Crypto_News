@@ -1,6 +1,6 @@
 """
-Crypto News Telegram Bot with AI Image Generation
-FIXED VERSION - Fetches REAL-TIME data from Perplexity API
+Crypto News Telegram Bot with AI Image Generation - FIXED
+REAL-TIME DATA + UNIQUE IMAGES EVERY DAY
 
 Author: TriggerZzz
 License: MIT
@@ -14,6 +14,7 @@ from datetime import datetime
 import sys
 import time
 from io import BytesIO
+import hashlib
 
 # ============================================================================
 # CONFIGURATION - All sensitive data loaded from environment variables
@@ -27,9 +28,9 @@ IMAGE_PROMPT = os.environ.get('IMAGE_PROMPT')
 
 # API Configuration
 PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
-PERPLEXITY_MODEL = "sonar"  # Online model with real-time web search
+PERPLEXITY_MODEL = "sonar"
 PERPLEXITY_MAX_TOKENS = 2000
-PERPLEXITY_TEMPERATURE = 0.2  # Lower = more factual, less creative
+PERPLEXITY_TEMPERATURE = 0.2
 
 # Image Generation Configuration
 IMAGE_API_URL = "https://image.pollinations.ai/prompt/"
@@ -48,24 +49,15 @@ def query_perplexity(prompt, max_retries=3):
     """
     Query Perplexity AI API for REAL-TIME crypto market news.
     Uses 'sonar' model which searches the web for current data.
-    
-    Args:
-        prompt (str): The query prompt to send to Perplexity
-        max_retries (int): Maximum number of retry attempts
-        
-    Returns:
-        str: The generated content with REAL data, or None if request fails
     """
     headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json"
     }
     
-    # Get current date for context
     current_date = datetime.utcnow().strftime('%B %d, %Y')
     current_time = datetime.utcnow().strftime('%H:%M UTC')
     
-    # CRITICAL: System prompt tells Perplexity to use REAL data
     payload = {
         "model": PERPLEXITY_MODEL,
         "messages": [
@@ -102,12 +94,11 @@ def query_perplexity(prompt, max_retries=3):
                 PERPLEXITY_API_URL, 
                 headers=headers, 
                 json=payload, 
-                timeout=60  # Longer timeout for web search
+                timeout=60
             )
             response.raise_for_status()
             data = response.json()
             
-            # Extract the response content
             content = data['choices'][0]['message']['content']
             print(f"✅ Received REAL-TIME response ({len(content)} characters)")
             
@@ -151,26 +142,96 @@ def query_perplexity(prompt, max_retries=3):
 
 
 # ============================================================================
-# IMAGE GENERATION FUNCTIONS
+# IMAGE GENERATION FUNCTIONS - UNIQUE IMAGES EVERY DAY
 # ============================================================================
 
+def generate_unique_image_prompt():
+    """
+    Generate a truly unique prompt variation for each day.
+    Uses multiple randomization techniques to ensure different images.
+    """
+    
+    # Get current date and time for maximum uniqueness
+    now = datetime.utcnow()
+    date_str = now.strftime('%Y%m%d')
+    hour_str = now.strftime('%H')
+    
+    # Create a hash-based seed for even more randomness
+    hash_seed = hashlib.md5(f"{date_str}{hour_str}".encode()).hexdigest()[:8]
+    
+    # Different image style variations for each day
+    style_variations = [
+        "cinematic epic composition",  # Day 1, 5, 9...
+        "dramatic HDR photography",     # Day 2, 6, 10...
+        "ultra-detailed 8K render",     # Day 3, 7, 11...
+        "hyper-realistic professional", # Day 4, 8, 12...
+        "sleek modern digital art",     # Day 5, 9...
+    ]
+    
+    # Different angle/perspective variations
+    angle_variations = [
+        "wide sweeping vista",
+        "close-up detail focus",
+        "top-down perspective",
+        "dynamic diagonal composition",
+        "centered balanced view",
+    ]
+    
+    # Different lighting variations
+    lighting_variations = [
+        "neon blue and gold lighting",
+        "dramatic volumetric lighting",
+        "cinematic rim lighting",
+        "electric neon glow",
+        "high-contrast theatrical lighting",
+    ]
+    
+    # Get day of month to cycle through variations
+    day_of_month = now.day
+    month_value = now.month
+    
+    style = style_variations[day_of_month % len(style_variations)]
+    angle = angle_variations[month_value % len(angle_variations)]
+    lighting = lighting_variations[(day_of_month + month_value) % len(lighting_variations)]
+    
+    # Build the unique prompt with today's variations
+    unique_prompt = (
+        f"{IMAGE_PROMPT}, {style}, {angle}, {lighting}, "
+        f"seed variation {date_str}{hash_seed}, "
+        f"unique daily composition"
+    )
+    
+    return unique_prompt
+
+
 def generate_crypto_image():
-    """Generate crypto-themed image using Pollinations.ai (free service)"""
+    """Generate truly unique crypto-themed image with daily variations"""
     try:
-        date_suffix = datetime.utcnow().strftime('%Y%m%d')
-        prompt_with_date = f"{IMAGE_PROMPT}, seed {date_suffix}"
+        # Generate unique prompt for today
+        unique_prompt = generate_unique_image_prompt()
         
-        encoded_prompt = requests.utils.quote(prompt_with_date)
+        # Encode prompt for URL
+        encoded_prompt = requests.utils.quote(unique_prompt)
         
+        # Add random parameters to force cache bypass
+        now = datetime.utcnow()
+        timestamp = now.strftime('%Y%m%d%H%M%S')
+        random_param = hashlib.md5(timestamp.encode()).hexdigest()[:8]
+        
+        # Build image URL with multiple unique parameters
         image_url = (
             f"{IMAGE_API_URL}{encoded_prompt}"
             f"?width={IMAGE_WIDTH}"
             f"&height={IMAGE_HEIGHT}"
             f"&nologo=true"
             f"&enhance=true"
+            f"&version={random_param}"  # Force unique version each time
+            f"&timestamp={timestamp}"    # Prevent caching
         )
         
-        print(f"🎨 Generated image URL")
+        print(f"🎨 Generated UNIQUE image URL")
+        print(f"   Date variant: {now.strftime('%Y-%m-%d')}")
+        print(f"   Style variation applied")
         print(f"   Preview: {image_url[:100]}...")
         
         return image_url
@@ -316,7 +377,7 @@ def main():
     """Main execution function"""
     
     print("\n" + "=" * 70)
-    print("🤖 CRYPTO NEWS TELEGRAM BOT - REAL-TIME DATA")
+    print("🤖 CRYPTO NEWS TELEGRAM BOT - REAL-TIME DATA + UNIQUE IMAGES")
     print("=" * 70)
     print(f"⏰ Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"🐍 Python: {sys.version.split()[0]}")
@@ -353,9 +414,9 @@ def main():
         send_telegram_message(error_msg)
         sys.exit(1)
     
-    # Step 2: Generate image
+    # Step 2: Generate UNIQUE image
     print("\n" + "=" * 70)
-    print("STEP 2: Generating Image")
+    print("STEP 2: Generating UNIQUE Crypto Image")
     print("=" * 70)
     
     image_url = generate_crypto_image()
@@ -370,9 +431,9 @@ def main():
     # Final status
     print("\n" + "=" * 70)
     if success:
-        print("✅ SUCCESS: REAL-TIME report delivered!")
+        print("✅ SUCCESS: REAL-TIME report with UNIQUE image delivered!")
         print(f"📊 Content: {len(content)} chars")
-        print(f"🎨 Image: Generated with today's date seed")
+        print(f"🎨 Image: Unique daily variation")
     else:
         print("❌ FAILED: Could not deliver report")
     print("=" * 70 + "\n")
